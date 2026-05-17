@@ -24,7 +24,7 @@ export function useAuth() {
           // ✅ Cast explicite pour éviter l'erreur TypeScript
           await supabase
             .from('users')
-            .update({ status: 'online' } as any)
+            .update({ status: 'online' })
             .eq('id', session.user.id)
         }
       }
