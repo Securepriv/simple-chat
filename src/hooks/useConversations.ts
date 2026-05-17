@@ -1,15 +1,17 @@
 'use client'
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useRef } from 'react'
 import { getSupabaseClient } from '@/lib/supabase/client'
 import { useConversationsStore, useAuthStore } from '@/store'
 import type { Conversation, User } from '@/types'
 
 export function useConversations() {
   const supabase = getSupabaseClient()
-  // ✅ Cast pour bypasser les conflits de types Supabase SSR
   const db = supabase as any
   const { user } = useAuthStore()
   const { conversations, activeConversationId, loading, setConversations, setActiveConversation, updateConversation, addConversation, setLoading } = useConversationsStore()
+  // ✅ Référence pour stocker les conversations actuelles
+  const conversationsRef = useRef(conversations)
+  conversationsRef.current = conversations
 
   useEffect(() => {
     if (!user) return
@@ -70,12 +72,19 @@ export function useConversations() {
     load()
   }, [user?.id]) // eslint-disable-line
 
+  // ✅ Realtime corrigé : nom unique + dépendances minimales
   useEffect(() => {
     if (!user) return
-    const channel = supabase.channel('conv-updates')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+
+    const channel = supabase.channel(`conv-updates-${user.id}-${Date.now()}`)
+      .on('postgres_changes', { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'messages' 
+      }, (payload) => {
         const newMsg = payload.new as any
-        const conv = conversations.find((c) => c.id === newMsg.conversation_id)
+        // ✅ Utilise la ref au lieu de conversations
+        const conv = conversationsRef.current.find((c) => c.id === newMsg.conversation_id)
         if (!conv) return
         updateConversation(newMsg.conversation_id, {
           last_message: newMsg,
@@ -85,8 +94,11 @@ export function useConversations() {
         })
       })
       .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [user?.id, conversations]) // eslint-disable-line
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [user?.id]) // ✅ Plus de `conversations` dans les dépendances
 
   const openConversationWith = useCallback(async (otherUser: User) => {
     if (!user) return null
