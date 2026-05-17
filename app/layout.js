@@ -1,8 +1,8 @@
 import './globals.css'
 
 export const metadata = {
-  title: 'Simple Chat',
-  description: 'Application de chat simple',
+  title: 'Messenger - Chat 2 personnes',
+  description: 'Application de chat pour 2 personnes',
 }
 
 export default function RootLayout({ children }) {
