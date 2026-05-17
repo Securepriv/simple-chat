@@ -1,45 +1,29 @@
-// src/Sidebar.tsx
-import React, { useState } from 'react';
-import ConversationItem, { Conversation } from './ConversationItem'; // Importe l'interface et le composant
+'use client'
+import { useConversations } from '@/hooks/useConversations'
+import { ConversationItem } from './ConversationItem'
 
-interface SidebarProps {
-  conversations: Conversation[];
-  selectedConversationId: string | null;
-  onSelectConversation: (id: string) => void;
-}
-
-const Sidebar: React.FC<SidebarProps> = ({ conversations, selectedConversationId, onSelectConversation }) => {
-  const [searchTerm, setSearchTerm] = useState('');
-
-  const filteredConversations = conversations.filter(conv =>
-    conv.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+export function Sidebar() {
+  const { conversations, activeConversationId, setActiveConversation } = useConversations()
 
   return (
-    <div className="sidebar">
-      <input
-        type="text"
-        placeholder="Rechercher une conversation..."
-        value={searchTerm}
-        onChange={(e) => setSearchTerm(e.target.value)}
-        className="search-input"
-      />
-      <div className="conversation-list">
-        {filteredConversations.length > 0 ? (
-          filteredConversations.map((conv) => (
-            <ConversationItem
-              key={conv.id}
-              conversation={conv}
-              isSelected={conv.id === selectedConversationId}
-              onClick={() => onSelectConversation(conv.id)}
-            />
-          ))
-        ) : (
-          <p className="no-conversations">Aucune conversation trouvée.</p>
+    <aside className="w-[400px] flex-shrink-0 border-r border-[#222d34] bg-[#111b21] flex flex-col">
+      <div className="p-4 bg-[#202c33] flex items-center justify-between">
+        <h1 className="text-[#e9edef] font-bold text-xl">Messages</h1>
+      </div>
+      
+      <div className="flex-1 overflow-y-auto custom-scrollbar">
+        {conversations?.map((conv) => (
+          <ConversationItem 
+            key={conv.id} 
+            conversation={conv} 
+            isActive={activeConversationId === conv.id}
+            onClick={() => setActiveConversation(conv.id)}
+          />
+        ))}
+        {conversations?.length === 0 && (
+          <p className="text-[#8696a0] text-center mt-10">Aucune discussion</p>
         )}
       </div>
-    </div>
-  );
-};
-
-export default Sidebar;
+    </aside>
+  )
+}
