@@ -17,6 +17,25 @@ export default function LoginPage() {
     if (data) setUsers(data)
   }
 
+  const testSupabase = async () => {
+  console.log('Test Supabase...')
+  console.log('URL:', process.env.NEXT_PUBLIC_SUPABASE_URL)
+  console.log('Key:', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.substring(0, 10) + '...')
+  
+  const { data, error } = await supabase.from('users').select('*')
+  
+  if (error) {
+    console.error('❌ Erreur Supabase:', error)
+  } else {
+    console.log('✅ Succès! Utilisateurs:', data)
+  }
+}
+
+useEffect(() => {
+  testSupabase()
+  loadUsers()
+}, [])
+
   const login = async (user) => {
     localStorage.setItem('user', JSON.stringify(user))
     
