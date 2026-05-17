@@ -16,7 +16,8 @@ import {
   Check,
   CheckCheck,
   Circle,
-  CircleCheck
+  CircleCheck,
+  MessageCircle
 } from 'lucide-react'
 
 export default function ChatPage() {
