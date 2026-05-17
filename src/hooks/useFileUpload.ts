@@ -20,19 +20,40 @@ export function useFileUpload() {
 
   const uploadFile = useCallback(async (file: File): Promise<UploadedFile> => {
     if (!user) throw new Error('Non authentifié')
-    if (file.size > MAX_SIZE) throw new Error(`Fichier trop volumineux (max 10 MB)`)
+    if (file.size > MAX_SIZE) throw new Error('Fichier trop volumineux (max 10 MB)')
     if (!ALLOWED[file.type]) throw new Error(`Type non autorisé: ${file.type}`)
 
-    setUploading(true); setProgress(0)
+    setUploading(true)
+    setProgress(0)
+
     try {
       const ext = file.name.split('.').pop()
       const fileName = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-      const { data, error } = await supabase.storage.from('chat-files').upload(fileName, file, { cacheControl: '3600', upsert: false })
+
+      const { data, error } = await supabase.storage
+        .from('chat-files')
+        .upload(fileName, file, { cacheControl: '3600', upsert: false })
+
       if (error) throw error
       setProgress(100)
-      const { data: { signedUrl } } = await supabase.storage.from('chat-files').createSignedUrl(data.path, 3600)
-      return { url: signedUrl || '', name: file.name, size: file.size, type: file.type }
-    } finally { setUploading(false) }
+
+      // ✅ Gestion du cas null
+      const { data: signedData, error: signedError } = await supabase.storage
+        .from('chat-files')
+        .createSignedUrl(data.path, 3600)
+
+      if (signedError) throw signedError
+      if (!signedData) throw new Error('Impossible de générer le lien signé')
+
+      return {
+        url: signedData.signedUrl,
+        name: file.name,
+        size: file.size,
+        type: file.type
+      }
+    } finally {
+      setUploading(false)
+    }
   }, [user]) // eslint-disable-line
 
   const getMessageType = (fileType: string): MessageType => ALLOWED[fileType] || 'file'
