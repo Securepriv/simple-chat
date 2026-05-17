@@ -4,11 +4,9 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
 
-export default function HomePage() {
+export default function LoginPage() {
   const router = useRouter()
   const [users, setUsers] = useState([])
-  const [newUsername, setNewUsername] = useState('')
-  const [showNewUser, setShowNewUser] = useState(false)
 
   useEffect(() => {
     loadUsers()
@@ -19,68 +17,127 @@ export default function HomePage() {
     if (data) setUsers(data)
   }
 
-  const login = (user) => {
-    localStorage.setItem('userId', user.id)
-    localStorage.setItem('username', user.username)
+  const login = async (user) => {
+    localStorage.setItem('user', JSON.stringify(user))
+    
+    await supabase
+      .from('users')
+      .update({ is_online: true, last_seen: new Date() })
+      .eq('id', user.id)
+    
     router.push('/chat')
   }
 
-  const createUser = async () => {
-    if (!newUsername.trim()) return
-    const { data } = await supabase
-      .from('users')
-      .insert([{ username: newUsername }])
-      .select()
-      .single()
-    if (data) login(data)
-  }
-
   return (
-    <div className="login-container">
-      <div className="login-card">
-        <div className="login-header">
-          <div className="login-icon"><span>💬</span></div>
-          <h1>Messenger</h1>
-          <p>Connectez-vous pour discuter</p>
+    <div style={styles.container}>
+      <div style={styles.card}>
+        <div style={styles.header}>
+          <div style={styles.icon}>💬</div>
+          <h1 style={styles.title}>Messenger</h1>
+          <p style={styles.subtitle}>Choisissez votre compte</p>
         </div>
-        <div className="login-body">
-          {!showNewUser ? (
-            <>
-              <div className="user-buttons">
-                {users.map((user) => (
-                  <button key={user.id} onClick={() => login(user)} className="user-button">
-                    <div className="user-avatar-small">{user.username[0].toUpperCase()}</div>
-                    <div>
-                      <div className="user-name">{user.username}</div>
-                      <div className="user-status">Cliquez pour discuter</div>
-                    </div>
-                  </button>
-                ))}
+        <div style={styles.body}>
+          {users.map(user => (
+            <button
+              key={user.id}
+              onClick={() => login(user)}
+              style={styles.userButton}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f3f4f6'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+            >
+              <div style={styles.avatar}>
+                {user.username[0].toUpperCase()}
               </div>
-              <button onClick={() => setShowNewUser(true)} className="new-user-btn">
-                + Nouvel utilisateur
-              </button>
-            </>
-          ) : (
-            <>
-              <input
-                type="text"
-                value={newUsername}
-                onChange={(e) => setNewUsername(e.target.value)}
-                placeholder="Entrez votre pseudo"
-                className="new-user-input"
-                autoFocus
-              />
-              <button onClick={createUser} className="create-btn">
-                Commencer à chatter
-              </button>
-              <button onClick={() => setShowNewUser(false)} className="back-btn">
-                Retour
-              </button>
-            </>
-          )}
+              <div style={styles.userInfo}>
+                <div style={styles.userName}>{user.username}</div>
+                <div style={styles.userStatus}>Cliquez pour discuter</div>
+              </div>
+            </button>
+          ))}
         </div>
       </div>
     </div>
   )
+}
+
+const styles = {
+  container: {
+    minHeight: '100vh',
+    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '20px',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
+  },
+  card: {
+    background: 'white',
+    borderRadius: '24px',
+    maxWidth: '400px',
+    width: '100%',
+    overflow: 'hidden',
+    boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)'
+  },
+  header: {
+    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    padding: '32px',
+    textAlign: 'center'
+  },
+  icon: {
+    fontSize: '48px',
+    marginBottom: '16px'
+  },
+  title: {
+    color: 'white',
+    fontSize: '28px',
+    fontWeight: 'bold',
+    marginBottom: '8px'
+  },
+  subtitle: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: '14px'
+  },
+  body: {
+    padding: '24px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px'
+  },
+  userButton: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '16px',
+    padding: '16px',
+    border: '1px solid #e5e7eb',
+    borderRadius: '16px',
+    backgroundColor: 'white',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+    width: '100%'
+  },
+  avatar: {
+    width: '48px',
+    height: '48px',
+    borderRadius: '50%',
+    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: '20px'
+  },
+  userInfo: {
+    flex: 1,
+    textAlign: 'left'
+  },
+  userName: {
+    fontWeight: '600',
+    color: '#1f2937',
+    fontSize: '16px'
+  },
+  userStatus: {
+    fontSize: '12px',
+    color: '#9ca3af'
+  }
 }
