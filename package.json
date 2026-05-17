@@ -12,7 +12,8 @@
     "react": "^18",
     "react-dom": "^18",
     "@supabase/supabase-js": "^2.39.0",
-    "lucide-react": "^0.303.0"
+    "lucide-react": "^0.303.0",
+    "emoji-picker-react": "^4.5.15"
   },
   "devDependencies": {
     "tailwindcss": "^3.3.0",
