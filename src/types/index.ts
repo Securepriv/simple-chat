@@ -23,15 +23,53 @@ export interface SendMessagePayload {
   file_url?: string; file_name?: string; file_size?: number
 }
 export interface UploadedFile { url: string; name: string; size: number; type: string }
+
 export type Database = {
   public: {
     Tables: {
-      users: { Row: User; Insert: Omit<User, 'created_at'>; Update: Partial<Omit<User, 'id'>> }
-      conversations: { Row: Conversation; Insert: { id?: string; created_at?: string }; Update: never }
-      conversation_members: { Row: ConversationMember; Insert: Omit<ConversationMember, 'joined_at'>; Update: never }
-      messages: { Row: Message; Insert: Omit<Message, 'id'|'created_at'|'is_received'|'is_seen'|'deleted_for_everyone'> & { id?: string; created_at?: string; is_received?: boolean; is_seen?: boolean; deleted_for_everyone?: boolean }; Update: Partial<Omit<Message, 'id'>> }
-      deleted_messages: { Row: DeletedMessage; Insert: Omit<DeletedMessage, 'deleted_at'>; Update: never }
-      typing_status: { Row: TypingStatus; Insert: Omit<TypingStatus, 'updated_at'>; Update: Partial<TypingStatus> }
+      users: {
+        Row: User
+        Insert: Omit<User, 'created_at'>
+        // ✅ Corrigé : Update explicite avec les bons champs
+        Update: {
+          username?: string
+          email?: string
+          avatar_url?: string | null
+          status?: UserStatus
+          last_seen?: string
+        }
+      }
+      conversations: {
+        Row: Conversation
+        Insert: { id?: string; created_at?: string }
+        Update: never
+      }
+      conversation_members: {
+        Row: ConversationMember
+        Insert: Omit<ConversationMember, 'joined_at'>
+        Update: never
+      }
+      messages: {
+        Row: Message
+        Insert: Omit<Message, 'id'|'created_at'|'is_received'|'is_seen'|'deleted_for_everyone'> & {
+          id?: string
+          created_at?: string
+          is_received?: boolean
+          is_seen?: boolean
+          deleted_for_everyone?: boolean
+        }
+        Update: Partial<Omit<Message, 'id'>>
+      }
+      deleted_messages: {
+        Row: DeletedMessage
+        Insert: Omit<DeletedMessage, 'deleted_at'>
+        Update: never
+      }
+      typing_status: {
+        Row: TypingStatus
+        Insert: Omit<TypingStatus, 'updated_at'>
+        Update: Partial<TypingStatus>
+      }
     }
     Functions: {
       get_or_create_conversation: { Args: { user_a: string; user_b: string }; Returns: string }
