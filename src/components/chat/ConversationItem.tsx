@@ -1,35 +1,34 @@
-// src/ConversationItem.tsx
-import React from 'react';
+'use client'
+import { Conversation } from '@/types'
 
-// Définition de l'interface pour une conversation
-export interface Conversation {
-  id: string;
-  name: string;
-  avatar: string;
-  lastMessage: string;
-  timestamp: string;
+interface Props {
+  conversation: Conversation
+  isActive: boolean
+  onClick: () => void
 }
 
-interface ConversationItemProps {
-  conversation: Conversation;
-  isSelected: boolean;
-  onClick: () => void;
-}
-
-const ConversationItem: React.FC<ConversationItemProps> = ({ conversation, isSelected, onClick }) => {
+export function ConversationItem({ conversation, isActive, onClick }: Props) {
   return (
-    <div
-      className={`conversation-item ${isSelected ? 'selected' : ''}`}
+    <div 
       onClick={onClick}
+      className={`flex items-center p-3 cursor-pointer hover:bg-[#202c33] transition-colors ${isActive ? 'bg-[#2a3942]' : ''}`}
     >
-      <img src={conversation.avatar} alt={conversation.name} className="conversation-avatar" />
-      <div className="conversation-info">
-        <h4>{conversation.name}</h4>
-        <p>{conversation.lastMessage}</p>
+      <div className="w-12 h-12 rounded-full bg-gray-600 flex-shrink-0 overflow-hidden">
+        {conversation.avatar_url ? (
+          <img src={conversation.avatar_url} alt="" className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full bg-[#6a7175]" />
+        )}
       </div>
-      <span className="conversation-timestamp">{conversation.timestamp}</span>
+      <div className="ml-3 flex-1 border-b border-[#222d34] pb-3">
+        <div className="flex justify-between items-center">
+          <span className="text-[#e9edef] font-medium">{conversation.name}</span>
+          <span className="text-[#8696a0] text-xs">
+            {conversation.last_message_at ? new Date(conversation.last_message_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}
+          </span>
+        </div>
+        <p className="text-[#8696a0] text-sm truncate">{conversation.last_message || 'Pas de message'}</p>
+      </div>
     </div>
-  );
-};
-
-export default ConversationItem;
+  )
+}
