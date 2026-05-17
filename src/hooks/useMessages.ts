@@ -6,6 +6,8 @@ import type { Message, SendMessagePayload } from '@/types'
 
 export function useMessages(conversationId: string | null) {
   const supabase = getSupabaseClient()
+  // ✅ Cast pour bypasser les conflits de types Supabase SSR
+  const db = supabase as any
   const { user } = useAuthStore()
   const { messages, loading, typingUsers, setMessages, addMessage, updateMessage, removeMessage, addTypingUser, removeTypingUser, setLoading } = useMessagesStore()
   const typingTimeout = useRef<NodeJS.Timeout | null>(null)
@@ -15,7 +17,12 @@ export function useMessages(conversationId: string | null) {
     if (!conversationId) return
     const load = async () => {
       setLoading(true)
-      const { data, error } = await supabase.from('messages').select('*, sender:users(*)').eq('conversation_id', conversationId).eq('deleted_for_everyone', false).order('created_at', { ascending: true }).limit(50)
+      const { data, error } = await db.from('messages')
+        .select('*, sender:users(*)')
+        .eq('conversation_id', conversationId)
+        .eq('deleted_for_everyone', false)
+        .order('created_at', { ascending: true })
+        .limit(50)
       if (!error && data) setMessages(conversationId, data as Message[])
       setLoading(false)
     }
@@ -25,14 +32,24 @@ export function useMessages(conversationId: string | null) {
   useEffect(() => {
     if (!conversationId || !user) return
     const markReceived = async () => {
-      await supabase.from('messages').update({ is_received: true }).eq('conversation_id', conversationId).neq('sender_id', user.id).eq('is_received', false)
+      await db.from('messages')
+        .update({ is_received: true })
+        .eq('conversation_id', conversationId)
+        .neq('sender_id', user.id)
+        .eq('is_received', false)
     }
     const markSeen = async () => {
       if (document.visibilityState === 'visible') {
-        await supabase.from('messages').update({ is_seen: true }).eq('conversation_id', conversationId).neq('sender_id', user.id).eq('is_received', true).eq('is_seen', false)
+        await db.from('messages')
+          .update({ is_seen: true })
+          .eq('conversation_id', conversationId)
+          .neq('sender_id', user.id)
+          .eq('is_received', true)
+          .eq('is_seen', false)
       }
     }
-    markReceived(); markSeen()
+    markReceived()
+    markSeen()
     const onVisible = () => { if (document.visibilityState === 'visible') markSeen() }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
@@ -43,10 +60,12 @@ export function useMessages(conversationId: string | null) {
     const channel = supabase.channel(`msgs:${conversationId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` }, async (payload) => {
         const newMsg = payload.new as Message
-        const { data: sender } = await supabase.from('users').select('*').eq('id', newMsg.sender_id).single()
+        const { data: sender } = await db.from('users').select('*').eq('id', newMsg.sender_id).single()
         addMessage(conversationId, { ...newMsg, sender: sender || undefined })
         if (user && newMsg.sender_id !== user.id) {
-          await supabase.from('messages').update({ is_received: true, is_seen: document.visibilityState === 'visible' }).eq('id', newMsg.id)
+          await db.from('messages')
+            .update({ is_received: true, is_seen: document.visibilityState === 'visible' })
+            .eq('id', newMsg.id)
         }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` }, (payload) => {
@@ -67,39 +86,68 @@ export function useMessages(conversationId: string | null) {
 
   const sendMessage = useCallback(async (payload: SendMessagePayload) => {
     if (!user) return
-    const { error } = await supabase.from('messages').insert({ ...payload, sender_id: user.id, message_type: payload.message_type || 'text' })
+    const { error } = await db.from('messages').insert({
+      ...payload,
+      sender_id: user.id,
+      message_type: payload.message_type || 'text'
+    })
     if (error) throw error
-    await supabase.from('typing_status').upsert({ conversation_id: payload.conversation_id, user_id: user.id, is_typing: false })
+    await db.from('typing_status').upsert({
+      conversation_id: payload.conversation_id,
+      user_id: user.id,
+      is_typing: false
+    })
   }, [user]) // eslint-disable-line
 
   const deleteForMe = useCallback(async (messageId: string) => {
     if (!user || !conversationId) return
-    await supabase.from('deleted_messages').insert({ message_id: messageId, user_id: user.id })
+    await db.from('deleted_messages').insert({ message_id: messageId, user_id: user.id })
     removeMessage(conversationId, messageId)
   }, [user, conversationId]) // eslint-disable-line
 
   const deleteForEveryone = useCallback(async (message: Message) => {
     if (!user || message.sender_id !== user.id) return
     if (message.is_seen) throw new Error('Message déjà vu')
-    await supabase.from('messages').update({ deleted_for_everyone: true }).eq('id', message.id)
+    await db.from('messages')
+      .update({ deleted_for_everyone: true })
+      .eq('id', message.id)
   }, [user]) // eslint-disable-line
 
   const clearConversation = useCallback(async () => {
     if (!user || !conversationId) return
     const msgs = messages[conversationId] || []
     if (!msgs.length) return
-    await supabase.from('deleted_messages').upsert(msgs.map((m) => ({ message_id: m.id, user_id: user.id })))
+    await db.from('deleted_messages').upsert(
+      msgs.map((m) => ({ message_id: m.id, user_id: user.id }))
+    )
     setMessages(conversationId, [])
   }, [user, conversationId, messages]) // eslint-disable-line
 
   const handleTyping = useCallback(() => {
     if (!user || !conversationId) return
-    supabase.from('typing_status').upsert({ conversation_id: conversationId, user_id: user.id, is_typing: true })
+    db.from('typing_status').upsert({
+      conversation_id: conversationId,
+      user_id: user.id,
+      is_typing: true
+    })
     if (typingTimeout.current) clearTimeout(typingTimeout.current)
     typingTimeout.current = setTimeout(() => {
-      supabase.from('typing_status').upsert({ conversation_id: conversationId, user_id: user.id, is_typing: false })
+      db.from('typing_status').upsert({
+        conversation_id: conversationId,
+        user_id: user.id,
+        is_typing: false
+      })
     }, 2000)
   }, [user, conversationId]) // eslint-disable-line
 
-  return { messages: conversationMessages, loading, typingUserIds: conversationId ? (typingUsers[conversationId] || []) : [], sendMessage, deleteForMe, deleteForEveryone, clearConversation, handleTyping }
+  return {
+    messages: conversationMessages,
+    loading,
+    typingUserIds: conversationId ? (typingUsers[conversationId] || []) : [],
+    sendMessage,
+    deleteForMe,
+    deleteForEveryone,
+    clearConversation,
+    handleTyping
+  }
 }
