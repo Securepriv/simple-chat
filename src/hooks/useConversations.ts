@@ -90,7 +90,7 @@ export function useConversations() {
 
   const openConversationWith = useCallback(async (otherUser: User) => {
     if (!user) return null
-    const { data: convId, error } = await supabase.rpc('get_or_create_conversation', {
+    const { data: convId, error } = await db.rpc('get_or_create_conversation', {
       user_a: user.id,
       user_b: otherUser.id
     })
