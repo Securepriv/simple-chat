@@ -25,44 +25,72 @@ export default function ChatPage() {
     setUserId(storedUserId)
     setUsername(storedUsername)
     loadMessages()
+    setupRealtimeSubscription()
 
-    // Écouter les nouveaux messages
+    return () => {
+      supabase.removeAllChannels()
+    }
+  }, [router])
+
+  const setupRealtimeSubscription = () => {
+    console.log('🟢 Configuration de la subscription...')
+    
     const subscription = supabase
-      .channel('messages')
-      .on('postgres_changes', 
-        { event: 'INSERT', schema: 'public', table: 'messages' }, 
+      .channel('messages-channel')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages'
+        },
         (payload) => {
+          console.log('📩 Nouveau message reçu:', payload.new)
           setMessages(prev => [...prev, payload.new])
         }
       )
-      .subscribe()
+      .subscribe((status) => {
+        console.log('📡 Statut subscription:', status)
+      })
 
-    return () => subscription.unsubscribe()
-  }, [router])
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    return subscription
+  }
 
   const loadMessages = async () => {
-    const { data } = await supabase
+    console.log('📥 Chargement des messages...')
+    const { data, error } = await supabase
       .from('messages')
       .select('*')
       .order('created_at', { ascending: true })
-    if (data) setMessages(data)
+    
+    if (error) {
+      console.error('❌ Erreur chargement:', error)
+    } else {
+      console.log('✅ Messages chargés:', data?.length || 0)
+      setMessages(data || [])
+    }
   }
 
   const sendMessage = async (e) => {
     e.preventDefault()
     if (!input.trim()) return
 
-    await supabase
+    console.log('✉️ Envoi du message:', input)
+
+    const { data, error } = await supabase
       .from('messages')
       .insert([{ 
         user_id: userId, 
         username: username,
         content: input 
       }])
+      .select()
+
+    if (error) {
+      console.error('❌ Erreur envoi:', error)
+    } else {
+      console.log('✅ Message envoyé:', data)
+    }
 
     setInput('')
   }
@@ -73,9 +101,12 @@ export default function ChatPage() {
     router.push('/')
   }
 
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
   return (
     <div className="flex flex-col h-screen bg-gray-100">
-      {/* Header */}
       <div className="bg-white shadow-md p-4 flex justify-between items-center">
         <div>
           <h1 className="text-xl font-bold">💬 Simple Chat</h1>
@@ -90,34 +121,38 @@ export default function ChatPage() {
         </button>
       </div>
 
-      {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {messages.map((msg) => {
-          const isMe = msg.user_id === userId
-          return (
-            <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-xs lg:max-w-md ${isMe ? 'order-2' : 'order-1'}`}>
-                {!isMe && (
-                  <div className="text-xs text-gray-500 mb-1 ml-1">{msg.username}</div>
-                )}
-                <div className={`p-3 rounded-2xl ${
-                  isMe 
-                    ? 'bg-blue-500 text-white rounded-br-sm' 
-                    : 'bg-white text-gray-800 rounded-bl-sm shadow'
-                }`}>
-                  {msg.content}
-                </div>
-                <div className={`text-xs text-gray-400 mt-1 ${isMe ? 'text-right mr-1' : 'text-left ml-1'}`}>
-                  {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        {messages.length === 0 ? (
+          <div className="text-center text-gray-400 mt-10">
+            Aucun message. Soyez le premier à écrire !
+          </div>
+        ) : (
+          messages.map((msg) => {
+            const isMe = msg.user_id === userId
+            return (
+              <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-xs lg:max-w-md ${isMe ? 'order-2' : 'order-1'}`}>
+                  {!isMe && (
+                    <div className="text-xs text-gray-500 mb-1 ml-1">{msg.username}</div>
+                  )}
+                  <div className={`p-3 rounded-2xl ${
+                    isMe 
+                      ? 'bg-blue-500 text-white rounded-br-sm' 
+                      : 'bg-white text-gray-800 rounded-bl-sm shadow'
+                  }`}>
+                    {msg.content}
+                  </div>
+                  <div className={`text-xs text-gray-400 mt-1 ${isMe ? 'text-right mr-1' : 'text-left ml-1'}`}>
+                    {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </div>
                 </div>
               </div>
-            </div>
-          )
-        })}
+            )
+          })
+        )}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
       <form onSubmit={sendMessage} className="bg-white border-t p-4">
         <div className="flex gap-2 max-w-4xl mx-auto">
           <input
