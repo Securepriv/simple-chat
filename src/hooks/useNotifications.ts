@@ -64,12 +64,12 @@ export function useNotifications() {
             : msg.content?.slice(0, 100) || 'Nouveau message'
 
           const notification = new Notification(`MessageApp — ${senderName}`, {
-            body,
-            icon: '/icon.png',
-            badge: '/badge.png',
-            tag: msg.conversation_id,
-            renotify: true,
-          })
+                body,
+                icon: '/icon.png',
+                badge: '/badge.png',
+                tag: msg.conversation_id,
+                renotify: true,
+              } as NotificationOptions & { renotify: boolean })
 
           notification.onclick = () => {
             window.focus()
