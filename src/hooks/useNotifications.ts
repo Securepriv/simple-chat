@@ -8,6 +8,8 @@ export function useNotifications() {
   const { user } = useAuthStore()
   const permissionRef = useRef<NotificationPermission>('default')
   const supabase = getSupabaseClient()
+  // ✅ Cast pour bypasser les conflits de types Supabase SSR
+  const db = supabase as any
 
   // Demander la permission au montage
   useEffect(() => {
@@ -36,7 +38,7 @@ export function useNotifications() {
           table: 'messages',
         },
         async (payload) => {
-          const msg = payload.new
+          const msg = payload.new as any
 
           // Ne pas notifier ses propres messages
           if (msg.sender_id === user.id) return
@@ -47,8 +49,8 @@ export function useNotifications() {
           // Vérifier la permission
           if (permissionRef.current !== 'granted') return
 
-          // Récupérer le sender
-          const { data: sender } = await supabase
+          // ✅ Utilise db au lieu de supabase
+          const { data: sender } = await db
             .from('users')
             .select('username')
             .eq('id', msg.sender_id)
@@ -65,7 +67,7 @@ export function useNotifications() {
             body,
             icon: '/icon.png',
             badge: '/badge.png',
-            tag: msg.conversation_id, // Regrouper par conversation
+            tag: msg.conversation_id,
             renotify: true,
           })
 
