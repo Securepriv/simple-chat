@@ -17,9 +17,13 @@ export const useAuthStore = create<AuthState>((set) => ({
   setLoading: (loading) => set({ loading }),
   signOut: async () => {
     const supabase = getSupabaseClient()
+    // ✅ Cast pour bypasser le type never
+    const db = supabase as any
     const { data: { user } } = await supabase.auth.getUser()
     if (user) {
-      await supabase.from('users').update({ status: 'offline', last_seen: new Date().toISOString() }).eq('id', user.id)
+      await db.from('users')
+        .update({ status: 'offline', last_seen: new Date().toISOString() })
+        .eq('id', user.id)
     }
     await supabase.auth.signOut()
     set({ user: null })
@@ -69,7 +73,9 @@ export const useMessagesStore = create<MessagesState>((set) => ({
   messages: {},
   loading: false,
   typingUsers: {},
-  setMessages: (conversationId, messages) => set((state) => ({ messages: { ...state.messages, [conversationId]: messages } })),
+  setMessages: (conversationId, messages) => set((state) => ({
+    messages: { ...state.messages, [conversationId]: messages }
+  })),
   addMessage: (conversationId, message) => set((state) => ({
     messages: { ...state.messages, [conversationId]: [...(state.messages[conversationId] || []), message] },
   })),
