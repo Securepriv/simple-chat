@@ -9,6 +9,8 @@ export function useAuth() {
   const { user, loading, setUser, setLoading, signOut } = useAuthStore()
   const router = useRouter()
   const supabase = getSupabaseClient()
+  // ✅ Cast pour bypasser les conflits de types Supabase SSR
+  const db = supabase as any
 
   useEffect(() => {
     const init = async () => {
@@ -21,9 +23,7 @@ export function useAuth() {
           .single()
         if (profile) {
           setUser(profile as User)
-          // ✅ Cast explicite pour éviter l'erreur TypeScript
-          await supabase
-            .from('users')
+          await db.from('users')
             .update({ status: 'online' })
             .eq('id', session.user.id)
         }
@@ -42,10 +42,8 @@ export function useAuth() {
             .single()
           if (profile) {
             setUser(profile as User)
-            // ✅ Cast explicite pour éviter l'erreur TypeScript
-            await supabase
-              .from('users')
-              .update({ status: 'online' } as any)
+            await db.from('users')
+              .update({ status: 'online' })
               .eq('id', session.user.id)
           }
           router.push('/chat')
@@ -60,12 +58,8 @@ export function useAuth() {
     const handleUnload = async () => {
       const u = useAuthStore.getState().user
       if (u) {
-        await supabase
-          .from('users')
-          .update({
-            status: 'offline',
-            last_seen: new Date().toISOString()
-          } as any)
+        await db.from('users')
+          .update({ status: 'offline', last_seen: new Date().toISOString() })
           .eq('id', u.id)
       }
     }
