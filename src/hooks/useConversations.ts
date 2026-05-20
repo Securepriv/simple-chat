@@ -24,9 +24,9 @@ export function useConversations() {
   const conversationsRef = useRef(conversations)
   conversationsRef.current = conversations
 
-  // Référence pour le channel Realtime
+  // Référence pour le channel Realtime et tracking
   const channelRef = useRef<any>(null)
-  const isSubscribedRef = useRef(false)
+  const isCleanupPendingRef = useRef(false)
 
   // Chargement initial des conversations
   useEffect(() => {
@@ -111,20 +111,35 @@ export function useConversations() {
     }
 
     loadConversations()
-  }, [user?.id])
+  }, [user?.id, setConversations, setLoading])
 
   // Configuration du Realtime pour les nouveaux messages
   useEffect(() => {
     if (!user) return
 
-    // Nettoyer l'ancien channel s'il existe
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current)
-      channelRef.current = null
-      isSubscribedRef.current = false
+    // ✅ Si un cleanup est en cours, attendre
+    if (isCleanupPendingRef.current) {
+      console.warn('Cleanup pending, skipping new channel creation')
+      return
     }
 
-    // Créer un nouveau channel avec un nom stable
+    // ✅ Nettoyer l'ancien channel s'il existe AVANT de créer un nouveau
+    const cleanup = () => {
+      isCleanupPendingRef.current = true
+      if (channelRef.current) {
+        try {
+          supabase.removeChannel(channelRef.current)
+        } catch (error) {
+          console.error('Error removing channel:', error)
+        }
+        channelRef.current = null
+      }
+      isCleanupPendingRef.current = false
+    }
+
+    cleanup()
+
+    // ✅ Créer un nouveau channel avec un nom stable
     const channel = supabase.channel(`conv-updates-${user.id}`)
 
     // ✅ IMPORTANT: Ajouter TOUS les callbacks AVANT d'appeler subscribe()
@@ -181,11 +196,9 @@ export function useConversations() {
     // ✅ Appeler subscribe() UNE SEULE FOIS à la fin, après tous les .on()
     channel.subscribe((status) => {
       if (status === 'SUBSCRIBED') {
-        console.log(`Realtime connected for user ${user.id}`)
-        isSubscribedRef.current = true
+        console.log(`✅ Realtime connected for user ${user.id}`)
       } else if (status === 'CHANNEL_ERROR') {
-        console.error(`Realtime error for user ${user.id}`)
-        isSubscribedRef.current = false
+        console.error(`❌ Realtime error for user ${user.id}`)
       }
     })
 
@@ -193,13 +206,9 @@ export function useConversations() {
 
     // Nettoyage à la désactivation
     return () => {
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current)
-        channelRef.current = null
-        isSubscribedRef.current = false
-      }
+      cleanup()
     }
-  }, [user?.id])
+  }, [user?.id, updateConversation])
 
   // Ouvrir ou créer une conversation avec un utilisateur
   const openConversationWith = useCallback(async (otherUser: User) => {
