@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useCallback, useRef } from 'react'
+import { useEffect, useCallback, useRef, useState } from 'react'
 import { getSupabaseClient } from '@/lib/supabase/client'
 import { useConversationsStore, useAuthStore } from '@/store'
 import type { Conversation, User } from '@/types'
@@ -24,9 +24,11 @@ export function useConversations() {
   const conversationsRef = useRef(conversations)
   conversationsRef.current = conversations
 
-  // Référence pour le channel Realtime et tracking
+  // Référence pour le channel Realtime
   const channelRef = useRef<any>(null)
-  const isCleanupPendingRef = useRef(false)
+  
+  // ✅ State pour tracker le channel ID valide
+  const validChannelIdRef = useRef<string | null>(null)
 
   // Chargement initial des conversations
   useEffect(() => {
@@ -117,49 +119,48 @@ export function useConversations() {
   useEffect(() => {
     if (!user) return
 
-    // ✅ Si un cleanup est en cours, attendre
-    if (isCleanupPendingRef.current) {
-      console.warn('Cleanup pending, skipping new channel creation')
-      return
-    }
+    // ✅ Générer un ID unique pour ce channel
+    const currentChannelId = `conv-updates-${user.id}-${Date.now()}`
+    validChannelIdRef.current = currentChannelId
 
-    // ✅ Nettoyer l'ancien channel s'il existe AVANT de créer un nouveau
-    const cleanup = () => {
-      isCleanupPendingRef.current = true
-      if (channelRef.current) {
-        try {
-          supabase.removeChannel(channelRef.current)
-        } catch (error) {
-          console.error('Error removing channel:', error)
-        }
-        channelRef.current = null
+    // ✅ Nettoyer l'ancien channel s'il existe
+    if (channelRef.current) {
+      try {
+        supabase.removeChannel(channelRef.current)
+      } catch (error) {
+        console.error('Error removing old channel:', error)
       }
-      isCleanupPendingRef.current = false
+      channelRef.current = null
     }
 
-    cleanup()
+    // ✅ Créer le channel SANS chaîner les méthodes
+    const channel = supabase.channel(`conv-updates-${user.id}`, {
+      config: {
+        broadcast: { self: false }
+      }
+    })
 
-    // ✅ Créer un nouveau channel avec un nom stable
-    const channel = supabase.channel(`conv-updates-${user.id}`)
+    // ✅ Créer un wrapper pour vérifier que ce channel est valide
+    const isValidChannel = () => validChannelIdRef.current === currentChannelId
 
-    // ✅ IMPORTANT: Ajouter TOUS les callbacks AVANT d'appeler subscribe()
-    channel.on('postgres_changes', 
+    // ✅ Ajouter le callback INSERT
+    channel.on(
+      'postgres_changes',
       { 
         event: 'INSERT', 
         schema: 'public', 
         table: 'messages' 
       }, 
       (payload) => {
+        if (!isValidChannel()) return
+
         const newMessage = payload.new as any
-        
-        // Utiliser la référence pour avoir les conversations à jour
         const conversation = conversationsRef.current.find(
           (c) => c.id === newMessage.conversation_id
         )
         
         if (!conversation) return
 
-        // Mettre à jour la conversation
         const isUnread = newMessage.sender_id !== user.id
         updateConversation(newMessage.conversation_id, {
           last_message: newMessage,
@@ -170,7 +171,9 @@ export function useConversations() {
       }
     )
 
-    channel.on('postgres_changes',
+    // ✅ Ajouter le callback UPDATE
+    channel.on(
+      'postgres_changes',
       {
         event: 'UPDATE',
         schema: 'public',
@@ -178,9 +181,9 @@ export function useConversations() {
         filter: `is_seen=eq.true`
       },
       (payload) => {
+        if (!isValidChannel()) return
+
         const updatedMessage = payload.new as any
-        
-        // Mettre à jour le compteur de messages non lus quand un message est vu
         const conversation = conversationsRef.current.find(
           (c) => c.id === updatedMessage.conversation_id
         )
@@ -193,20 +196,32 @@ export function useConversations() {
       }
     )
 
-    // ✅ Appeler subscribe() UNE SEULE FOIS à la fin, après tous les .on()
-    channel.subscribe((status) => {
+    // ✅ Subscribe UNE SEULE FOIS, avec callback
+    const subscription = channel.subscribe((status) => {
+      if (!isValidChannel()) return
+
       if (status === 'SUBSCRIBED') {
         console.log(`✅ Realtime connected for user ${user.id}`)
       } else if (status === 'CHANNEL_ERROR') {
         console.error(`❌ Realtime error for user ${user.id}`)
+      } else if (status === 'CLOSED') {
+        console.log(`⚠️ Channel closed for user ${user.id}`)
       }
     })
 
     channelRef.current = channel
 
-    // Nettoyage à la désactivation
+    // ✅ Cleanup: marquer comme invalide et désincrire
     return () => {
-      cleanup()
+      validChannelIdRef.current = null
+      if (channelRef.current) {
+        try {
+          supabase.removeChannel(channelRef.current)
+        } catch (error) {
+          console.error('Error in cleanup:', error)
+        }
+        channelRef.current = null
+      }
     }
   }, [user?.id, updateConversation])
 
