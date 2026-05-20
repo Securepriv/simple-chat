@@ -26,6 +26,7 @@ export function useConversations() {
 
   // Référence pour le channel Realtime
   const channelRef = useRef<any>(null)
+  const isSubscribedRef = useRef(false)
 
   // Chargement initial des conversations
   useEffect(() => {
@@ -119,65 +120,74 @@ export function useConversations() {
     // Nettoyer l'ancien channel s'il existe
     if (channelRef.current) {
       supabase.removeChannel(channelRef.current)
+      channelRef.current = null
+      isSubscribedRef.current = false
     }
 
     // Créer un nouveau channel avec un nom stable
     const channel = supabase.channel(`conv-updates-${user.id}`)
-      .on('postgres_changes', 
-        { 
-          event: 'INSERT', 
-          schema: 'public', 
-          table: 'messages' 
-        }, 
-        (payload) => {
-          const newMessage = payload.new as any
-          
-          // Utiliser la référence pour avoir les conversations à jour
-          const conversation = conversationsRef.current.find(
-            (c) => c.id === newMessage.conversation_id
-          )
-          
-          if (!conversation) return
 
-          // Mettre à jour la conversation
-          const isUnread = newMessage.sender_id !== user.id
-          updateConversation(newMessage.conversation_id, {
-            last_message: newMessage,
-            unread_count: isUnread
-              ? (conversation.unread_count || 0) + 1
-              : conversation.unread_count
+    // ✅ IMPORTANT: Ajouter TOUS les callbacks AVANT d'appeler subscribe()
+    channel.on('postgres_changes', 
+      { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'messages' 
+      }, 
+      (payload) => {
+        const newMessage = payload.new as any
+        
+        // Utiliser la référence pour avoir les conversations à jour
+        const conversation = conversationsRef.current.find(
+          (c) => c.id === newMessage.conversation_id
+        )
+        
+        if (!conversation) return
+
+        // Mettre à jour la conversation
+        const isUnread = newMessage.sender_id !== user.id
+        updateConversation(newMessage.conversation_id, {
+          last_message: newMessage,
+          unread_count: isUnread
+            ? (conversation.unread_count || 0) + 1
+            : conversation.unread_count
+        })
+      }
+    )
+
+    channel.on('postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'messages',
+        filter: `is_seen=eq.true`
+      },
+      (payload) => {
+        const updatedMessage = payload.new as any
+        
+        // Mettre à jour le compteur de messages non lus quand un message est vu
+        const conversation = conversationsRef.current.find(
+          (c) => c.id === updatedMessage.conversation_id
+        )
+        
+        if (conversation && updatedMessage.sender_id !== user.id) {
+          updateConversation(updatedMessage.conversation_id, {
+            unread_count: Math.max(0, (conversation.unread_count || 0) - 1)
           })
         }
-      )
-      .on('postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'messages',
-          filter: `is_seen=eq.true`
-        },
-        (payload) => {
-          const updatedMessage = payload.new as any
-          
-          // Mettre à jour le compteur de messages non lus quand un message est vu
-          const conversation = conversationsRef.current.find(
-            (c) => c.id === updatedMessage.conversation_id
-          )
-          
-          if (conversation && updatedMessage.sender_id !== user.id) {
-            updateConversation(updatedMessage.conversation_id, {
-              unread_count: Math.max(0, (conversation.unread_count || 0) - 1)
-            })
-          }
-        }
-      )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log(`Realtime connected for user ${user.id}`)
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error(`Realtime error for user ${user.id}`)
-        }
-      })
+      }
+    )
+
+    // ✅ Appeler subscribe() UNE SEULE FOIS à la fin, après tous les .on()
+    channel.subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        console.log(`Realtime connected for user ${user.id}`)
+        isSubscribedRef.current = true
+      } else if (status === 'CHANNEL_ERROR') {
+        console.error(`Realtime error for user ${user.id}`)
+        isSubscribedRef.current = false
+      }
+    })
 
     channelRef.current = channel
 
@@ -186,6 +196,7 @@ export function useConversations() {
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current)
         channelRef.current = null
+        isSubscribedRef.current = false
       }
     }
   }, [user?.id])
