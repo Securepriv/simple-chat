@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useCallback, useRef, useState } from 'react'
+import { useEffect, useCallback, useRef } from 'react'
 import { getSupabaseClient } from '@/lib/supabase/client'
 import { useConversationsStore, useAuthStore } from '@/store'
 import type { Conversation, User } from '@/types'
@@ -26,9 +26,6 @@ export function useConversations() {
 
   // Référence pour le channel Realtime
   const channelRef = useRef<any>(null)
-  
-  // ✅ State pour tracker le channel ID valide
-  const validChannelIdRef = useRef<string | null>(null)
 
   // Chargement initial des conversations
   useEffect(() => {
@@ -119,31 +116,34 @@ export function useConversations() {
   useEffect(() => {
     if (!user) return
 
-    // ✅ Générer un ID unique pour ce channel
-    const currentChannelId = `conv-updates-${user.id}-${Date.now()}`
-    validChannelIdRef.current = currentChannelId
-
-    // ✅ Nettoyer l'ancien channel s'il existe
+    // ✅ Nettoyer complètement l'ancien channel
     if (channelRef.current) {
       try {
+        // Unsubscribe explicitement AVANT de supprimer
         supabase.removeChannel(channelRef.current)
       } catch (error) {
-        console.error('Error removing old channel:', error)
+        console.error('Error cleaning up old channel:', error)
       }
       channelRef.current = null
     }
 
-    // ✅ Créer le channel SANS chaîner les méthodes
-    const channel = supabase.channel(`conv-updates-${user.id}`, {
-      config: {
-        broadcast: { self: false }
+    // ✅ Créer un nouveau channel avec un nom unique
+    const channelName = `conv-updates-${user.id}`
+    
+    // ✅ Vérifier si un channel avec ce nom existe déjà et le supprimer
+    try {
+      const existingChannel = supabase.getChannels().find((ch: any) => ch.name === channelName)
+      if (existingChannel) {
+        supabase.removeChannel(existingChannel)
       }
-    })
+    } catch (e) {
+      // Ignore errors when checking channels
+    }
 
-    // ✅ Créer un wrapper pour vérifier que ce channel est valide
-    const isValidChannel = () => validChannelIdRef.current === currentChannelId
+    // ✅ Créer un NOUVEAU channel
+    const channel = supabase.channel(channelName)
 
-    // ✅ Ajouter le callback INSERT
+    // ✅ Ajouter le premier listener AVANT subscribe
     channel.on(
       'postgres_changes',
       { 
@@ -152,8 +152,6 @@ export function useConversations() {
         table: 'messages' 
       }, 
       (payload) => {
-        if (!isValidChannel()) return
-
         const newMessage = payload.new as any
         const conversation = conversationsRef.current.find(
           (c) => c.id === newMessage.conversation_id
@@ -171,7 +169,7 @@ export function useConversations() {
       }
     )
 
-    // ✅ Ajouter le callback UPDATE
+    // ✅ Ajouter le deuxième listener AVANT subscribe
     channel.on(
       'postgres_changes',
       {
@@ -181,8 +179,6 @@ export function useConversations() {
         filter: `is_seen=eq.true`
       },
       (payload) => {
-        if (!isValidChannel()) return
-
         const updatedMessage = payload.new as any
         const conversation = conversationsRef.current.find(
           (c) => c.id === updatedMessage.conversation_id
@@ -196,24 +192,20 @@ export function useConversations() {
       }
     )
 
-    // ✅ Subscribe UNE SEULE FOIS, avec callback
-    const subscription = channel.subscribe((status) => {
-      if (!isValidChannel()) return
-
+    // ✅ Subscribe UNE SEULE FOIS après tous les .on()
+    channel.subscribe((status) => {
+      console.log(`[Realtime ${user.id}] Status: ${status}`)
       if (status === 'SUBSCRIBED') {
         console.log(`✅ Realtime connected for user ${user.id}`)
       } else if (status === 'CHANNEL_ERROR') {
         console.error(`❌ Realtime error for user ${user.id}`)
-      } else if (status === 'CLOSED') {
-        console.log(`⚠️ Channel closed for user ${user.id}`)
       }
     })
 
     channelRef.current = channel
 
-    // ✅ Cleanup: marquer comme invalide et désincrire
+    // ✅ Cleanup proper: unsubscribe puis removeChannel
     return () => {
-      validChannelIdRef.current = null
       if (channelRef.current) {
         try {
           supabase.removeChannel(channelRef.current)
