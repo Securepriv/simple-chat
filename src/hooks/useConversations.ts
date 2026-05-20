@@ -1,9 +1,11 @@
 'use client'
 
-import { useEffect, useCallback, useRef } from 'react'
+import { useEffect, useCallback, useRef, useState } from 'react'
 import { getSupabaseClient } from '@/lib/supabase/client'
 import { useConversationsStore, useAuthStore } from '@/store'
 import type { Conversation, User } from '@/types'
+
+let realtimeSetupInProgress = false
 
 export function useConversations() {
   const supabase = getSupabaseClient()
@@ -24,8 +26,9 @@ export function useConversations() {
   const conversationsRef = useRef(conversations)
   conversationsRef.current = conversations
 
-  // Référence pour le channel Realtime
+  // Référence pour le channel Realtime et tracking
   const channelRef = useRef<any>(null)
+  const setupIdRef = useRef<string | null>(null)
 
   // Chargement initial des conversations
   useEffect(() => {
@@ -116,104 +119,152 @@ export function useConversations() {
   useEffect(() => {
     if (!user) return
 
-    // ✅ Nettoyer complètement l'ancien channel
-    if (channelRef.current) {
-      try {
-        // Unsubscribe explicitement AVANT de supprimer
-        supabase.removeChannel(channelRef.current)
-      } catch (error) {
-        console.error('Error cleaning up old channel:', error)
-      }
-      channelRef.current = null
-    }
+    // ✅ Générer un ID unique pour cette tentative de setup
+    const currentSetupId = `${user.id}-${Date.now()}`
+    setupIdRef.current = currentSetupId
 
-    // ✅ Créer un nouveau channel avec un nom unique
-    const channelName = `conv-updates-${user.id}`
-    
-    // ✅ Vérifier si un channel avec ce nom existe déjà et le supprimer
-    try {
-      const existingChannel = supabase.getChannels().find((ch: any) => ch.name === channelName)
-      if (existingChannel) {
-        supabase.removeChannel(existingChannel)
-      }
-    } catch (e) {
-      // Ignore errors when checking channels
-    }
-
-    // ✅ Créer un NOUVEAU channel
-    const channel = supabase.channel(channelName)
-
-    // ✅ Ajouter le premier listener AVANT subscribe
-    channel.on(
-      'postgres_changes',
-      { 
-        event: 'INSERT', 
-        schema: 'public', 
-        table: 'messages' 
-      }, 
-      (payload) => {
-        const newMessage = payload.new as any
-        const conversation = conversationsRef.current.find(
-          (c) => c.id === newMessage.conversation_id
-        )
-        
-        if (!conversation) return
-
-        const isUnread = newMessage.sender_id !== user.id
-        updateConversation(newMessage.conversation_id, {
-          last_message: newMessage,
-          unread_count: isUnread
-            ? (conversation.unread_count || 0) + 1
-            : conversation.unread_count
-        })
-      }
-    )
-
-    // ✅ Ajouter le deuxième listener AVANT subscribe
-    channel.on(
-      'postgres_changes',
-      {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'messages',
-        filter: `is_seen=eq.true`
-      },
-      (payload) => {
-        const updatedMessage = payload.new as any
-        const conversation = conversationsRef.current.find(
-          (c) => c.id === updatedMessage.conversation_id
-        )
-        
-        if (conversation && updatedMessage.sender_id !== user.id) {
-          updateConversation(updatedMessage.conversation_id, {
-            unread_count: Math.max(0, (conversation.unread_count || 0) - 1)
-          })
+    // ✅ Attendre si un setup est en cours (race condition safety)
+    if (realtimeSetupInProgress) {
+      console.log('⏳ Realtime setup already in progress, waiting...')
+      const waitTimer = setTimeout(() => {
+        // Re-trigger l'effet si on a attendu
+        if (setupIdRef.current === currentSetupId) {
+          setupIdRef.current = null
         }
-      }
-    )
+      }, 1000)
+      return () => clearTimeout(waitTimer)
+    }
 
-    // ✅ Subscribe UNE SEULE FOIS après tous les .on()
-    channel.subscribe((status) => {
-      console.log(`[Realtime ${user.id}] Status: ${status}`)
-      if (status === 'SUBSCRIBED') {
-        console.log(`✅ Realtime connected for user ${user.id}`)
-      } else if (status === 'CHANNEL_ERROR') {
-        console.error(`❌ Realtime error for user ${user.id}`)
-      }
-    })
+    realtimeSetupInProgress = true
 
-    channelRef.current = channel
-
-    // ✅ Cleanup proper: unsubscribe puis removeChannel
-    return () => {
+    // ✅ Nettoyer complètement l'ancien channel
+    const cleanupOldChannel = () => {
       if (channelRef.current) {
         try {
           supabase.removeChannel(channelRef.current)
         } catch (error) {
-          console.error('Error in cleanup:', error)
+          console.error('Error removing old channel:', error)
         }
         channelRef.current = null
       }
+
+      // ✅ Nettoyer tous les channels avec ce nom dans Supabase
+      try {
+        const channelName = `conv-updates-${user.id}`
+        const allChannels = supabase.getChannels() || []
+        allChannels.forEach((ch: any) => {
+          if (ch.name === channelName) {
+            try {
+              supabase.removeChannel(ch)
+            } catch (e) {
+              // Ignore
+            }
+          }
+        })
+      } catch (e) {
+        // Ignore errors
+      }
+    }
+
+    cleanupOldChannel()
+
+    // ✅ Petit délai pour s'assurer que le cleanup est complètement propagé
+    const setupTimer = setTimeout(() => {
+      // Vérifier que c'est toujours notre setup ID
+      if (setupIdRef.current !== currentSetupId) {
+        realtimeSetupInProgress = false
+        return
+      }
+
+      try {
+        const channelName = `conv-updates-${user.id}`
+        const channel = supabase.channel(channelName)
+
+        // ✅ Ajouter les listeners AVANT subscribe
+        channel.on(
+          'postgres_changes',
+          { 
+            event: 'INSERT', 
+            schema: 'public', 
+            table: 'messages' 
+          }, 
+          (payload) => {
+            const newMessage = payload.new as any
+            const conversation = conversationsRef.current.find(
+              (c) => c.id === newMessage.conversation_id
+            )
+            
+            if (!conversation) return
+
+            const isUnread = newMessage.sender_id !== user.id
+            updateConversation(newMessage.conversation_id, {
+              last_message: newMessage,
+              unread_count: isUnread
+                ? (conversation.unread_count || 0) + 1
+                : conversation.unread_count
+            })
+          }
+        )
+
+        channel.on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'messages',
+            filter: `is_seen=eq.true`
+          },
+          (payload) => {
+            const updatedMessage = payload.new as any
+            const conversation = conversationsRef.current.find(
+              (c) => c.id === updatedMessage.conversation_id
+            )
+            
+            if (conversation && updatedMessage.sender_id !== user.id) {
+              updateConversation(updatedMessage.conversation_id, {
+                unread_count: Math.max(0, (conversation.unread_count || 0) - 1)
+              })
+            }
+          }
+        )
+
+        // ✅ Subscribe UNE SEULE FOIS
+        channel.subscribe((status) => {
+          if (setupIdRef.current !== currentSetupId) return
+
+          console.log(`[Realtime] Status for ${user.id}: ${status}`)
+          if (status === 'SUBSCRIBED') {
+            console.log(`✅ Realtime connected for user ${user.id}`)
+          } else if (status === 'CHANNEL_ERROR') {
+            console.error(`❌ Realtime error for user ${user.id}`)
+          }
+        })
+
+        channelRef.current = channel
+        realtimeSetupInProgress = false
+      } catch (error) {
+        console.error('Error setting up realtime:', error)
+        realtimeSetupInProgress = false
+      }
+    }, 100)
+
+    // ✅ Cleanup: invalider ce setup et nettoyer
+    return () => {
+      clearTimeout(setupTimer)
+      setupIdRef.current = null
+
+      // Async cleanup
+      setTimeout(() => {
+        if (channelRef.current) {
+          try {
+            supabase.removeChannel(channelRef.current)
+          } catch (error) {
+            console.error('Error in cleanup:', error)
+          }
+          channelRef.current = null
+        }
+        realtimeSetupInProgress = false
+      }, 50)
     }
   }, [user?.id, updateConversation])
 
