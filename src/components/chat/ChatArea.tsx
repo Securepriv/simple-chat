@@ -1,9 +1,14 @@
 'use client'
 import { useMessages } from '@/hooks/useMessages'
 import { useEffect, useRef } from 'react'
+import { MessageBubble } from './MessageBubble'
+import { MessageInput } from './MessageInput'
+import { TypingIndicator } from './TypingIndicator'
+import { useMessagesStore, useAuthStore } from '@/store'
 
 export function ChatArea({ conversationId }: { conversationId: string }) {
-  const { messages, sendMessage, loading, handleTyping } = useMessages(conversationId)
+  const { user } = useAuthStore()
+  const { messages, sendMessage, loading, handleTyping, typingUserIds } = useMessages(conversationId)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -17,12 +22,16 @@ export function ChatArea({ conversationId }: { conversationId: string }) {
     const input = e.currentTarget.elements.namedItem('message') as HTMLInputElement
     const text = input.value.trim()
     if (text) {
-      await sendMessage({
-        conversation_id: conversationId,  // ✅ obligatoire
-        content: text,                     // ✅ le texte
-        message_type: 'text'              // ✅ type
-      })
-      input.value = ''
+      try {
+        await sendMessage({
+          conversation_id: conversationId,
+          content: text,
+          message_type: 'text'
+        })
+        input.value = ''
+      } catch (error) {
+        console.error('Error sending message:', error)
+      }
     }
   }
 
@@ -41,18 +50,19 @@ export function ChatArea({ conversationId }: { conversationId: string }) {
         className="flex-1 overflow-y-auto p-4 space-y-2"
       >
         {messages.map((msg) => {
-          const isMe = msg.sender_id !== msg.sender?.id || msg.sender_id === msg.sender_id
+          // ✅ Vérifier si le message est de l'utilisateur actuel
+          const isMe = user && msg.sender_id === user.id
 
           return (
             <div
               key={msg.id}
-              className={`flex ${msg.sender?.id ? 'justify-start' : 'justify-end'}`}
+              className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}
             >
               <div className={`max-w-[65%] px-3 py-2 rounded-lg text-sm shadow-sm ${
-                msg.sender_id ? 'bg-[#202c33] text-[#e9edef]' : 'bg-[#005c4b] text-[#e9edef]'
+                isMe ? 'bg-[#005c4b] text-[#e9edef]' : 'bg-[#202c33] text-[#e9edef]'
               }`}>
                 {msg.content}
-                <span className="text-[10px] text-[#8696a0] ml-2">
+                <span className="text-[10px] text-[#8696a0] ml-2 block mt-1">
                   {new Date(msg.created_at).toLocaleTimeString([], {
                     hour: '2-digit',
                     minute: '2-digit'
@@ -62,6 +72,11 @@ export function ChatArea({ conversationId }: { conversationId: string }) {
             </div>
           )
         })}
+        
+        {/* Typing Indicator */}
+        {typingUserIds && typingUserIds.length > 0 && (
+          <TypingIndicator />
+        )}
       </div>
 
       {/* Input */}
