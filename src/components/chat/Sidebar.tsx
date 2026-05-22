@@ -3,12 +3,13 @@ import { useState, useCallback } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { useConversations } from '@/hooks/useConversations'
 import { ConversationItem } from './ConversationItem'
+import type { User } from '@/types'
 
 export function Sidebar() {
   const { signOut } = useAuth()
   const { conversations, activeConversationId, setActiveConversation, searchUsers, openConversationWith } = useConversations()
   const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState([])
+  const [searchResults, setSearchResults] = useState<User[]>([])
   const [isSearching, setIsSearching] = useState(false)
 
   const handleSearch = useCallback(async (query: string) => {
@@ -28,7 +29,7 @@ export function Sidebar() {
     }
   }, [searchUsers])
 
-  const handleSelectUser = useCallback(async (user: any) => {
+  const handleSelectUser = useCallback(async (user: User) => {
     const convId = await openConversationWith(user)
     if (convId) {
       setSearchQuery('')
