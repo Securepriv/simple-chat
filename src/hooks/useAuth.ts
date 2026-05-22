@@ -1,5 +1,5 @@
 'use client'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { getSupabaseClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/store'
@@ -9,46 +9,75 @@ export function useAuth() {
   const { user, loading, setUser, setLoading, signOut } = useAuthStore()
   const router = useRouter()
   const supabase = getSupabaseClient()
-  // ✅ Cast pour bypasser les conflits de types Supabase SSR
   const db = supabase as any
+  const initRef = useRef(false)
 
   useEffect(() => {
-    const init = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session?.user) {
-        const { data: profile } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', session.user.id)
-          .single()
-        if (profile) {
-          setUser(profile as User)
-          await db.from('users')
-            .update({ status: 'online' })
-            .eq('id', session.user.id)
-        }
-      }
-      setLoading(false)
-    }
-    init()
+    // ✅ Éviter les double initialisations en Strict Mode
+    if (initRef.current) return
+    initRef.current = true
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (event === 'SIGNED_IN' && session?.user) {
+    const init = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        
+        if (session?.user) {
           const { data: profile } = await supabase
             .from('users')
             .select('*')
             .eq('id', session.user.id)
             .single()
+          
           if (profile) {
             setUser(profile as User)
-            await db.from('users')
-              .update({ status: 'online' })
-              .eq('id', session.user.id)
+            try {
+              await db.from('users')
+                .update({ status: 'online' })
+                .eq('id', session.user.id)
+            } catch (e) {
+              console.error('Error updating status:', e)
+            }
           }
-          router.push('/chat')
+        } else {
+          setUser(null)
         }
-        if (event === 'SIGNED_OUT') {
+      } catch (error) {
+        console.error('Error in auth init:', error)
+        setUser(null)
+      } finally {
+        // ✅ TOUJOURS appeler setLoading(false)
+        setLoading(false)
+      }
+    }
+
+    init()
+
+    // ✅ Setup auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (event === 'SIGNED_IN' && session?.user) {
+          try {
+            const { data: profile } = await supabase
+              .from('users')
+              .select('*')
+              .eq('id', session.user.id)
+              .single()
+            
+            if (profile) {
+              setUser(profile as User)
+              try {
+                await db.from('users')
+                  .update({ status: 'online' })
+                  .eq('id', session.user.id)
+              } catch (e) {
+                console.error('Error updating status:', e)
+              }
+            }
+            router.push('/chat')
+          } catch (error) {
+            console.error('Error in SIGNED_IN:', error)
+          }
+        } else if (event === 'SIGNED_OUT') {
           setUser(null)
           router.push('/login')
         }
@@ -58,18 +87,23 @@ export function useAuth() {
     const handleUnload = async () => {
       const u = useAuthStore.getState().user
       if (u) {
-        await db.from('users')
-          .update({ status: 'offline', last_seen: new Date().toISOString() })
-          .eq('id', u.id)
+        try {
+          await db.from('users')
+            .update({ status: 'offline', last_seen: new Date().toISOString() })
+            .eq('id', u.id)
+        } catch (e) {
+          console.error('Error in unload:', e)
+        }
       }
     }
 
     window.addEventListener('beforeunload', handleUnload)
+    
     return () => {
-      subscription.unsubscribe()
+      subscription?.unsubscribe()
       window.removeEventListener('beforeunload', handleUnload)
     }
-  }, []) // eslint-disable-line
+  }, [])
 
   const login = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
